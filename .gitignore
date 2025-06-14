@@ -5,9 +5,18 @@ __pycache__/
 *.pyd
 
 # Arquivos de resultados
-ml_results_linear_regression/*
-ml_results_random_forest/*
-ml_results_cnn/*
+docker_ubuntu_24.04/ml_results_linear_regression/*
+docker_ubuntu_24.04/ml_results_random_forest/*
+docker_ubuntu_24.04/ml_results_cnn/*
+docker_ubuntu_24.04/ml_results_comparison/*
+local_ubuntu_22.04/ml_results_comparison/*
+local_ubuntu_22.04/ml_results_linear_regression/*
+local_ubuntu_22.04/ml_results_random_forest/*
+local_ubuntu_22.04/ml_results_cnn/*
+raspberry_pi_ubuntu/ml_results_comparison/*
+raspberry_pi_ubuntu/ml_results_linear_regression/*
+raspberry_pi_ubuntu/ml_results_random_forest/*
+raspberry_pi_ubuntu/ml_results_cnn/*
 !ml_results_linear_regression/.gitkeep
 !ml_results_random_forest/.gitkeep
 !ml_results_cnn/.gitkeep
