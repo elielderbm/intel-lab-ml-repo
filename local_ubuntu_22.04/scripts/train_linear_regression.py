@@ -15,7 +15,7 @@ import json
 
 # Configuração
 DATA_PATH = next((os.path.join(root, 'intel_lab_data_cleaned.csv') for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data')) if 'intel_lab_data_cleaned.csv' in files), None) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
-OUTPUT_DIR = 'ml_results_linear_regression'
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_linear_regression')
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
