@@ -12,7 +12,7 @@ import sys
 import json
 
 # Configuração
-DATA_PATH = 'intel_lab_data_cleaned.csv'
+DATA_PATH = next((os.path.join(root, 'intel_lab_data_cleaned.csv') for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data')) if 'intel_lab_data_cleaned.csv' in files), None) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
 OUTPUT_DIR = 'ml_results_random_forest'
 N_ESTIMATORS = 100
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
