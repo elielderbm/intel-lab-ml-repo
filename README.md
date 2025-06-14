@@ -67,6 +67,11 @@ cd intel-lab-ml-repo
 
 6. Repeat for Random Forest and CNN.
 
+7. Comparative analysis 
+   ```bash
+   python3 scripts/analysis_comparison.py
+   ```
+
 ### 3. Docker (Ubuntu 24.04)
 
 1. Install Docker:
@@ -90,14 +95,14 @@ cd intel-lab-ml-repo
 
 4. Run a model (e.g., CNN):
    ```bash
-   chmod +x setup.sh
-   ./setup.sh cnn
+   cd cnn
+   sh exec.sh
    ```
 
-5. Run analysis:
+5. Run analysis (Exiting Docker environment):
    ```bash
-   cd cnn
-   docker run --rm -v $(pwd)/../../ml_results_cnn:/app/ml_results_cnn cnn python3 analyze_cnn.py
+   cd scripts
+   sh analyze_cnn.py
    ```
 
 6. Repeat for Linear Regression and Random Forest.
