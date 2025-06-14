@@ -5,7 +5,7 @@ import os
 import glob
 
 # Diretórios
-OUTPUT_DIR = 'ml_results_random_forest'
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_random_forest')
 ANALYSIS_DIR = os.path.join(OUTPUT_DIR, 'analysis')
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
 
