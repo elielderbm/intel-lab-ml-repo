@@ -33,7 +33,7 @@ Each environment directory contains:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<your-username>/intel-lab-ml-repo.git
+git clone https://github.com/elielderbm/intel-lab-ml-repo.git
 cd intel-lab-ml-repo
 ```
 
