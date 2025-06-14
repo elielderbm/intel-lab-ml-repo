@@ -1,23 +1,15 @@
 #!/bin/bash
 
-echo "Setting up Docker environment for Ubuntu 24.04..."
+set -e
 
-# Install Docker
-sudo apt update
-sudo apt install -y docker.io
-sudo systemctl start docker
-sudo systemctl enable docker
+echo "[SETUP] Installing system dependencies..."
 
-# Build and run Docker for specified model
-MODEL=$1
+apt-get update && \
+apt-get install -y python3 python3-pip && \
+rm -rf /var/lib/apt/lists/*
 
-if [ -z "$MODEL" ]; then
-    echo "Please specify a model (linear_regression, random_forest, or cnn)"
-    exit 1
-fi
+echo "[SETUP] Installing Python packages..."
 
-cd $MODEL
-docker build -t ${MODEL} .
-docker run --rm -v $(pwd)/../../ml_results_${MODEL}:/app/ml_results_${MODEL} ${MODEL}
+pip install --break-system-packages -r requirements.txt
 
-echo "Setup and execution for ${MODEL} complete!"
+echo "[SETUP] Done."
