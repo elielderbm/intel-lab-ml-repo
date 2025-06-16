@@ -10,6 +10,6 @@ sudo apt install -y python3 python3-pip
 pip install --break-system-packages -r requirements.txt
 
 # Install PyTorch for ARM (CPU)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install torch --index-url https://download.pytorch.org/whl/cpu --break-system-packages
 
 echo "Setup complete!"
