@@ -24,17 +24,17 @@ device = torch.device('cpu')  # Use CPU for Raspberry Pi
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv1d(1, 4, kernel_size=2, stride=1)  # Fewer filters
+        self.conv1 = nn.Conv1d(1, 4, kernel_size=2, stride=1)
         self.relu = nn.ReLU()
-        self.pool = nn.MaxPool1d(kernel_size=2)
-        self.fc1 = nn.Linear(4 * 1, 8)  # Smaller fully connected
+        self.pool = nn.MaxPool1d(kernel_size=1)  # Change kernel_size to 1
+        self.fc1 = nn.Linear(4 * 1, 8)
         self.fc2 = nn.Linear(8, 1)
 
     def forward(self, x):
         x = x.unsqueeze(1)
         x = self.conv1(x)
         x = self.relu(x)
-        x = self.pool(x)
+        x = self.pool(x)  # Now safe
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
         x = self.relu(x)
