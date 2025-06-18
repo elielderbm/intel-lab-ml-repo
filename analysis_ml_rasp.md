@@ -22,9 +22,9 @@ We looked at five key numbers to compare the models:
 Here’s how the models performed, averaged across all clients:
 | Model             |   RMSE |    MAE |     R2 |   TRAINING_TIME |   TOTAL_TIME |
 |:------------------|-------:|-------:|-------:|----------------:|-------------:|
-| CNN               | 2.3186 | 1.6999 | 0.3658 |        988.134  |       991.68 |
-| Linear Regression | 2.3435 | 1.6884 | 0.3521 |          1.6079 |         3.16 |
-| Random Forest     | 2.3614 | 1.6681 | 0.3422 |          4.5198 |         4.98 |
+| CNN               | 2.219  | 1.6261 | 0.4344 |        567.429  |       567.49 |
+| Linear Regression | 2.3391 | 1.678  | 0.3716 |          0.6954 |         2.26 |
+| Random Forest     | 2.1765 | 1.6057 | 0.4559 |          2.6935 |         3.24 |
 
 - **Linear Regression**: Fastest chef, but sometimes misses the mark (higher errors). Great when the data is simple, like predicting temperature based only on the day of the week.
 - **Random Forest**: Middle ground—pretty accurate and not too slow. It’s like a reliable chef who balances taste and time.
@@ -36,9 +36,9 @@ Think of choosing a car: Linear Regression is a bicycle (fast, simple), Random F
 For experts, here’s the detailed average performance across clients:
 | Model             |   RMSE |    MAE |     R2 |   TRAINING_TIME |   TOTAL_TIME |
 |:------------------|-------:|-------:|-------:|----------------:|-------------:|
-| CNN               | 2.3186 | 1.6999 | 0.3658 |        988.134  |       991.68 |
-| Linear Regression | 2.3435 | 1.6884 | 0.3521 |          1.6079 |         3.16 |
-| Random Forest     | 2.3614 | 1.6681 | 0.3422 |          4.5198 |         4.98 |
+| CNN               | 2.219  | 1.6261 | 0.4344 |        567.429  |       567.49 |
+| Linear Regression | 2.3391 | 1.678  | 0.3716 |          0.6954 |         2.26 |
+| Random Forest     | 2.1765 | 1.6057 | 0.4559 |          2.6935 |         3.24 |
 - **RMSE and MAE**: Lower values indicate better prediction accuracy. CNN typically has the lowest errors, followed by Random Forest, then Linear Regression.
 - **R²**: Values closer to 1 show better model fit. CNN and Random Forest often outperform Linear Regression.
 - **Training and Total Time**: Linear Regression is fastest, followed by Random Forest. CNN requires significantly more time due to its complexity.
