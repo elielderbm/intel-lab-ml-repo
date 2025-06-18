@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.pipeline import Pipeline
 import pickle
 import time
 import os
@@ -18,53 +19,82 @@ DATA_PATH = next(
     None
 ) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_random_forest')
-N_ESTIMATORS = 20  # Slightly increased for better performance, still lightweight
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names):
     start_time = time.time()
-    model = RandomForestRegressor(
-        n_estimators=N_ESTIMATORS,
-        max_depth=8,              # Slightly deeper trees for more learning capacity
-        min_samples_leaf=2,       # Slightly smaller leaves for more flexibility
-        min_samples_split=4,      # Prevent splits with very few samples
-        random_state=42,
-        n_jobs=1                  # Use only one core for Raspberry Pi
-    )
-    model.fit(X_train, y_train)
-    training_time = time.time() - start_time
-    avg_tree_time = training_time / N_ESTIMATORS
 
-    y_pred = model.predict(X_test)
+    # Pipeline: PolynomialFeatures + StandardScaler + RandomForestRegressor
+    pipeline = Pipeline([
+        ('poly', PolynomialFeatures(degree=2, include_bias=False)),
+        ('scaler', StandardScaler()),
+        ('rf', RandomForestRegressor(
+            n_estimators=30,      # More trees for better performance, still lightweight
+            max_depth=10,         # Deeper trees for more learning capacity
+            min_samples_leaf=2,
+            min_samples_split=4,
+            random_state=42,
+            n_jobs=1              # Use only one core for Raspberry Pi
+        ))
+    ])
+
+    # Hyperparameter grid for GridSearchCV (lightweight grid)
+    param_grid = {
+        'rf__max_depth': [6, 8, 10],
+        'rf__min_samples_leaf': [1, 2, 4],
+        'rf__min_samples_split': [2, 4, 6],
+        'rf__n_estimators': [20, 30]
+    }
+
+    grid_search = GridSearchCV(
+        pipeline,
+        param_grid,
+        cv=3,
+        scoring='neg_mean_squared_error',
+        n_jobs=1,
+        verbose=0
+    )
+    grid_search.fit(X_train, y_train)
+    best_pipeline = grid_search.best_estimator_
+    training_time = time.time() - start_time
+
+    y_pred = best_pipeline.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    # Cross-validation scores (lightweight, 3-fold)
-    cross_val_r2 = cross_val_score(model, X_train, y_train, cv=3, scoring='r2', n_jobs=1)
-    cross_val_rmse = np.sqrt(-cross_val_score(model, X_train, y_train, cv=3, scoring='neg_mean_squared_error', n_jobs=1))
+    # Cross-validation scores (3-fold)
+    cross_val_r2 = cross_val_score(best_pipeline, X_train, y_train, cv=3, scoring='r2', n_jobs=1)
+    cross_val_rmse = np.sqrt(-cross_val_score(best_pipeline, X_train, y_train, cv=3, scoring='neg_mean_squared_error', n_jobs=1))
 
-    importances = model.feature_importances_
+    # Get feature importances from the RF in the pipeline
+    poly = best_pipeline.named_steps['poly']
+    expanded_feature_names = poly.get_feature_names_out(feature_names)
+    rf = best_pipeline.named_steps['rf']
+    importances = rf.feature_importances_
 
-    # Save only summary results
     results = {
         'rmse': float(rmse),
         'mae': float(mae),
         'r2': float(r2),
         'training_time': float(training_time),
-        'avg_tree_time': float(avg_tree_time),
         'cross_val_r2_mean': float(cross_val_r2.mean()),
         'cross_val_rmse_mean': float(cross_val_rmse.mean()),
-        'feature_importances': importances.tolist(),
-        'feature_names': feature_names
+        'best_params': grid_search.best_params_,
+        'feature_importances': dict(zip(expanded_feature_names, importances)),
+        'feature_names': expanded_feature_names.tolist(),
+        'y_mean': float(np.mean(y_test)),
+        'y_std': float(np.std(y_test)),
+        'pred_mean': float(np.mean(y_pred)),
+        'pred_std': float(np.std(y_pred))
     }
     with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
         json.dump(results, f, indent=4)
 
-    # Save model
+    # Save model pipeline
     with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
-        pickle.dump(model, f)
+        pickle.dump(best_pipeline, f)
 
     return results
 
@@ -89,12 +119,10 @@ if 'voltage' in df.columns:
 X = client_data[feature_names]
 y = client_data['temperature']
 
-# Standardize features
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X).astype(np.float32)
-
 # Divisão treino/teste
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
 # Treinar e salvar resultados
 total_start_time = time.time()
