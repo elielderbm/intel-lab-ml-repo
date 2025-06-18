@@ -27,24 +27,24 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
 
     # Pipeline: PolynomialFeatures + StandardScaler + RandomForestRegressor
     pipeline = Pipeline([
-        ('poly', PolynomialFeatures(degree=2, include_bias=False)),
+        ('poly', PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)),
         ('scaler', StandardScaler()),
         ('rf', RandomForestRegressor(
-            n_estimators=16,      # Reduced number of trees
-            max_depth=7,          # Shallower trees
+            n_estimators=18,      # Slightly increased number of trees
+            max_depth=8,          # Slightly deeper trees
             min_samples_leaf=2,
-            min_samples_split=4,
+            min_samples_split=3,  # Slightly more aggressive split
             random_state=42,
             n_jobs=1              # Use only one core for Raspberry Pi
         ))
     ])
 
-    # Further reduced hyperparameter grid for GridSearchCV
+    # Slightly expanded hyperparameter grid for GridSearchCV
     param_grid = {
-        'rf__max_depth': [6, 7],
-        'rf__min_samples_leaf': [2, 4],
-        'rf__min_samples_split': [2, 4],
-        'rf__n_estimators': [12, 16]
+        'rf__max_depth': [7, 8],
+        'rf__min_samples_leaf': [2, 3],
+        'rf__min_samples_split': [2, 3],
+        'rf__n_estimators': [16, 18]
     }
 
     grid_search = GridSearchCV(
