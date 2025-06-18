@@ -68,6 +68,9 @@ def plot_client_analysis(client_id, results):
 
 # Gerar gráficos para cada client
 for client_id, results in all_results.items():
+    if 'y_test' not in results or 'y_pred' not in results:
+        print(f"Warning: Skipping client {client_id} due to missing 'y_test' or 'y_pred' in results.")
+        continue
     plot_client_analysis(client_id, results)
 
 # Comparar métricas entre clients
@@ -75,8 +78,9 @@ metrics = ['rmse', 'mae', 'r2', 'training_time']
 for metric in metrics:
     plt.figure(figsize=(8, 6))
     clients = list(all_results.keys())
-    values = [all_results[c][metric] for c in clients]
-    plt.bar(clients, values, color='skyblue', edgecolor='black')
+    values = [all_results[c][metric] for c in clients if metric in all_results[c]]
+    filtered_clients = [c for c in clients if metric in all_results[c]]
+    plt.bar(filtered_clients, values, color='skyblue', edgecolor='black')
     plt.xlabel('Client')
     plt.ylabel(metric.upper())
     plt.title(f'{metric.upper()} Across Clients - Linear Regression')
@@ -101,11 +105,11 @@ report = f"# Analysis Report - Linear Regression\n\n"
 report += "## Performance Metrics per Client\n"
 for client_id, results in all_results.items():
     report += f"### Client: {client_id}\n"
-    report += f"- RMSE: {results['rmse']:.4f}\n"
-    report += f"- MAE: {results['mae']:.4f}\n"
-    report += f"- R²: {results['r2']:.4f}\n"
-    report += f"- Training Time: {results['training_time']:.2f} seconds\n"
-    report += f"- Total Execution Time: {total_times[client_id]:.2f} seconds\n\n"
+    report += f"- RMSE: {results.get('rmse', float('nan')):.4f}\n"
+    report += f"- MAE: {results.get('mae', float('nan')):.4f}\n"
+    report += f"- R²: {results.get('r2', float('nan')):.4f}\n"
+    report += f"- Training Time: {results.get('training_time', float('nan')):.2f} seconds\n"
+    report += f"- Total Execution Time: {total_times.get(client_id, float('nan')):.2f} seconds\n\n"
 
 report += "## Visual Analysis\n"
 report += ("For each client, detailed plots were generated showing:\n"

@@ -33,9 +33,14 @@ clients = list(all_results.keys())
 #############################################
 metrics = ['rmse', 'mae', 'r2', 'training_time', 'avg_epoch_time']
 for metric in metrics:
-    values = [all_results[c][metric] for c in clients]
+    # Only include clients that have this metric
+    filtered_clients = [c for c in clients if metric in all_results[c]]
+    values = [all_results[c][metric] for c in filtered_clients]
+    if not values:
+        print(f"Warning: No data found for metric '{metric}'. Skipping plot.")
+        continue
     plt.figure(figsize=(8, 6))
-    bars = plt.bar(clients, values, color='steelblue', edgecolor='black')
+    bars = plt.bar(filtered_clients, values, color='steelblue', edgecolor='black')
     plt.xlabel('Client')
     plt.ylabel(metric.upper())
     plt.title(f'{metric.upper()} Across Clients - CNN')
@@ -52,9 +57,10 @@ for metric in metrics:
 #############################################
 # Gráfico de Tempo Total
 #############################################
-values = [total_times[c] for c in clients]
+filtered_clients = [c for c in clients if c in total_times]
+values = [total_times[c] for c in filtered_clients]
 plt.figure(figsize=(8, 6))
-bars = plt.bar(clients, values, color='darkorange', edgecolor='black')
+bars = plt.bar(filtered_clients, values, color='darkorange', edgecolor='black')
 plt.xlabel('Client')
 plt.ylabel('Total Time (seconds)')
 plt.title('Total Execution Time Across Clients - CNN')
@@ -73,8 +79,11 @@ plt.close()
 #############################################
 plt.figure(figsize=(10, 6))
 for client_id, results in all_results.items():
-    plt.plot(range(1, len(results['test_rmse']) + 1), results['test_rmse'],
-             marker='o', label=f'{client_id} Test RMSE')
+    if 'test_rmse' in results and isinstance(results['test_rmse'], list):
+        plt.plot(range(1, len(results['test_rmse']) + 1), results['test_rmse'],
+                 marker='o', label=f'{client_id} Test RMSE')
+    else:
+        print(f"Warning: Skipping convergence plot for client {client_id} (missing 'test_rmse').")
 
 plt.xlabel('Epoch')
 plt.ylabel('RMSE')
@@ -93,12 +102,12 @@ report += "## Performance Metrics per Client\n\n"
 
 for client_id, results in all_results.items():
     report += f"### Client: {client_id}\n"
-    report += f"- **RMSE:** {results['rmse']:.4f}\n"
-    report += f"- **MAE:** {results['mae']:.4f}\n"
-    report += f"- **R²:** {results['r2']:.4f}\n"
-    report += f"- **Training Time:** {results['training_time']:.2f} seconds\n"
-    report += f"- **Average Epoch Time:** {results['avg_epoch_time']:.4f} seconds\n"
-    report += f"- **Total Execution Time:** {total_times[client_id]:.2f} seconds\n\n"
+    report += f"- **RMSE:** {results.get('rmse', float('nan')):.4f}\n"
+    report += f"- **MAE:** {results.get('mae', float('nan')):.4f}\n"
+    report += f"- **R²:** {results.get('r2', float('nan')):.4f}\n"
+    report += f"- **Training Time:** {results.get('training_time', float('nan')):.2f} seconds\n"
+    report += f"- **Average Epoch Time:** {results.get('avg_epoch_time', float('nan')):.4f} seconds\n"
+    report += f"- **Total Execution Time:** {total_times.get(client_id, float('nan')):.2f} seconds\n\n"
 
 report += "## Visual and Statistical Analysis\n"
 report += "- **RMSE & MAE:** Measure prediction error. Lower values indicate better performance.\n"
