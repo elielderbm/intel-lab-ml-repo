@@ -1,11 +1,10 @@
-import json
-import numpy as np
-import matplotlib.pyplot as plt
 import os
 import glob
+import json
+import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.stats import ttest_rel
-import seaborn as sns
 
 # Configuração dos diretórios
 BASE_DIR = os.path.dirname(__file__)
@@ -62,14 +61,12 @@ for metric in metrics + ['total_time']:
     plt.figure(figsize=(12, 6))
     bar_width = 0.25
     x = np.arange(len(clients))
-    
     for i, model in enumerate(MODELS):
         if metric == 'total_time':
             values = [total_times[model].get(c, np.nan) for c in clients]
         else:
             values = [all_results[model].get(c, {}).get(metric, np.nan) for c in clients]
         plt.bar(x + i * bar_width, values, bar_width, label=model, edgecolor='black')
-    
     plt.xlabel('Client')
     plt.ylabel(metrics_labels[metric])
     plt.title(f'{metrics_labels[metric]} Across Clients')
@@ -90,7 +87,7 @@ for metric in metrics + ['total_time']:
         else:
             values = [all_results[model].get(c, {}).get(metric, np.nan) for c in clients]
         data.append(values)
-    plt.boxplot(data, tick_labels=list(MODELS.keys()), patch_artist=True)
+    plt.boxplot(data, labels=list(MODELS.keys()), patch_artist=True)
     plt.ylabel(metrics_labels[metric])
     plt.title(f'Distribution of {metrics_labels[metric]} Across Models')
     plt.grid(True, linestyle='--', alpha=0.7)
@@ -115,12 +112,15 @@ def radar_chart():
                 vals = [total_times[model].get(c, np.nan) for c in clients]
             else:
                 vals = [all_results[model].get(c, {}).get(metric, np.nan) for c in clients]
-            values.append(np.nanmean(vals))
+            # Use mean ignoring nan
+            vals = [v for v in vals if not np.isnan(v)]
+            values.append(np.mean(vals) if vals else 0)
         # Normalizar valores para radar chart
-        values = [(val - min(values)) / (max(values) - min(values) + 1e-6) for val in values]
-        values += values[:1]
-        ax.plot(angles, values, linewidth=2, linestyle='solid', label=model)
-        ax.fill(angles, values, alpha=0.1)
+        min_v, max_v = min(values), max(values)
+        norm_values = [(val - min_v) / (max_v - min_v + 1e-6) if max_v > min_v else 0 for val in values]
+        norm_values += norm_values[:1]
+        ax.plot(angles, norm_values, linewidth=2, linestyle='solid', label=model)
+        ax.fill(angles, norm_values, alpha=0.1)
     
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels([metrics_labels[m] for m in categories])
@@ -138,13 +138,16 @@ for client in clients:
     for model in MODELS:
         if client in all_results[model]:
             results = all_results[model][client]
-            if 'y_test' in results and 'y_pred' in results:
-                residuals = np.array(results['y_test']) - np.array(results['y_pred'])
-                sns.kdeplot(residuals, label=model, linewidth=2)
+            if 'residuals' in results:
+                residuals = np.array(results['residuals'])
+                if residuals.size > 0:
+                    plt.hist(residuals, bins=30, alpha=0.5, label=model, density=True)
     plt.xlabel('Residual (Actual - Predicted)')
     plt.ylabel('Density')
     plt.title(f'Residual Distribution for Client {client}')
-    plt.legend()
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if handles:
+        plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig(os.path.join(ANALYSIS_DIR, f'residuals_client_{client}.png'))
@@ -152,24 +155,29 @@ for client in clients:
 
 # Análise estatística (teste t pareado)
 stat_results = []
-model_list = list(MODELS.keys())  # Convert dictionary keys to list for slicing
+model_list = list(MODELS.keys())
 for metric in metrics:
     for i, model1 in enumerate(model_list[:-1]):
         for model2 in model_list[i+1:]:
-            vals1 = [all_results[model1].get(c, {}).get(metric, np.nan) for c in clients]
-            vals2 = [all_results[model2].get(c, {}).get(metric, np.nan) for c in clients]
-            # Remover NaNs
-            valid_pairs = [(v1, v2) for v1, v2 in zip(vals1, vals2) if not np.isnan(v1) and not np.isnan(v2)]
-            if len(valid_pairs) > 1:
-                v1, v2 = zip(*valid_pairs)
-                stat, p_value = ttest_rel(v1, v2)
-                stat_results.append({
-                    'Metric': metric,
-                    'Comparison': f'{model1} vs {model2}',
-                    'Statistic': stat,
-                    'p-value': p_value,
-                    'Significant': p_value < 0.05
-                })
+            vals1 = []
+            vals2 = []
+            for c in clients:
+                v1 = all_results[model1].get(c, {}).get(metric, np.nan)
+                v2 = all_results[model2].get(c, {}).get(metric, np.nan)
+                if not np.isnan(v1) and not np.isnan(v2):
+                    vals1.append(v1)
+                    vals2.append(v2)
+            if len(vals1) > 1 and len(vals1) == len(vals2):
+                t_stat, p_val = ttest_rel(vals1, vals2)
+            else:
+                t_stat, p_val = np.nan, np.nan
+            stat_results.append({
+                'Metric': metric,
+                'Model 1': model1,
+                'Model 2': model2,
+                't_stat': t_stat,
+                'p_value': p_val
+            })
 
 df_stats = pd.DataFrame(stat_results)
 stats_path = os.path.join(ANALYSIS_DIR, 'statistical_tests.csv')
@@ -221,14 +229,24 @@ if 'Random Forest' in MODELS:
             if 'feature_importances' in results and 'feature_names' in results:
                 importances = np.array(results['feature_importances'])
                 feature_names = results['feature_names']
-                indices = np.argsort(importances)[::-1]
-                plt.bar([f'{client}_{name}' for name in np.array(feature_names)[indices]], 
-                        importances[indices], alpha=0.5, label=f'Client {client}')
+                # Defensive checks for importances shape and size
+                if importances.ndim == 1 and importances.size > 0:
+                    indices = np.argsort(importances)[::-1]
+                    plt.bar(
+                        [f'{client}_{name}' for name in np.array(feature_names)[indices]],
+                        importances[indices],
+                        alpha=0.5,
+                        label=f'Client {client}'
+                    )
+                else:
+                    print(f"Warning: Feature importances for client {client} are not 1D or are empty. Skipping.")
     plt.xticks(rotation=45, ha='right')
     plt.xlabel('Features')
     plt.ylabel('Importance')
     plt.title('Feature Importance Across Clients - Random Forest')
-    plt.legend()
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if handles:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(ANALYSIS_DIR, 'random_forest_feature_importance.png'))
     plt.close()
@@ -316,7 +334,6 @@ report += "- **For Everyone**: Try tweaking the recipes (model settings) and tes
 report += "- **Technical**: Optimize hyperparameters (GridSearchCV), explore ensembles (stacking CNN/Random Forest), investigate data quality, test model compression (knowledge distillation), and validate with cross-validation.\n\n"
 
 report += "## Generated Files\n"
-report += "Check these files for more details:\n"
 for metric in metrics + ['total_time']:
     report += f"- `comparison_{metric}.png` (bar plots)\n"
     report += f"- `boxplot_{metric}.png` (box plots)\n"
