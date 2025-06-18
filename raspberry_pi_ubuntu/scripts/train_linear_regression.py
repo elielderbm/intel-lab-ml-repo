@@ -24,8 +24,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names):
     start_time = time.time()
-    alphas = [1.0]  # Only one alpha for speed
-    model = RidgeCV(alphas=alphas, cv=2)
+    alphas = [0.1, 1.0, 10.0]  # Try a small range of alphas
+    model = RidgeCV(alphas=alphas, cv=3)
     model.fit(X_train, y_train)
     training_time = time.time() - start_time
 
@@ -35,8 +35,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     r2 = r2_score(y_test, y_pred)
 
     # Cross-validation scores
-    cross_val_r2 = cross_val_score(model, X_train, y_train, cv=2, scoring='r2')
-    cross_val_rmse = np.sqrt(-cross_val_score(model, X_train, y_train, cv=2, scoring='neg_mean_squared_error'))
+    cross_val_r2 = cross_val_score(model, X_train, y_train, cv=3, scoring='r2')
+    cross_val_rmse = np.sqrt(-cross_val_score(model, X_train, y_train, cv=3, scoring='neg_mean_squared_error'))
 
     # Save only summary results
     results = {
@@ -69,6 +69,9 @@ try:
 except FileNotFoundError:
     print(f"Erro: Arquivo '{DATA_PATH}' não encontrado.")
     exit(1)
+
+# Shuffle data before sampling
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 np.random.seed(42)
 client_data = df.sample(frac=0.03, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)

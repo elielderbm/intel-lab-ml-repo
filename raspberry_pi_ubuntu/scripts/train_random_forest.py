@@ -24,7 +24,13 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names):
     start_time = time.time()
-    model = RandomForestRegressor(n_estimators=N_ESTIMATORS, random_state=42)
+    model = RandomForestRegressor(
+        n_estimators=N_ESTIMATORS,
+        max_depth=6,              # Limit tree depth
+        min_samples_leaf=3,       # Avoid very small leaves
+        random_state=42,
+        n_jobs=1                  # Use only one core
+    )
     model.fit(X_train, y_train)
     training_time = time.time() - start_time
     avg_tree_time = training_time / N_ESTIMATORS
@@ -61,6 +67,9 @@ try:
 except FileNotFoundError:
     print(f"Erro: Arquivo '{DATA_PATH}' não encontrado.")
     exit(1)
+
+# Shuffle data before sampling
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 np.random.seed(42)
 client_data = df.sample(frac=0.03, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)

@@ -15,7 +15,7 @@ import json
 # Configuração
 DATA_PATH = next((os.path.join(root, 'intel_lab_data_cleaned.csv') for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data')) if 'intel_lab_data_cleaned.csv' in files), None) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_cnn')
-N_EPOCHS = 10  # Reduced epochs for speed/memory
+N_EPOCHS = 20  # Reduced epochs for speed/memory
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 device = torch.device('cpu')  # Use CPU for Raspberry Pi
@@ -26,33 +26,45 @@ class CNN(nn.Module):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv1d(1, 4, kernel_size=2, stride=1)
         self.relu = nn.ReLU()
-        self.pool = nn.MaxPool1d(kernel_size=1)  # Change kernel_size to 1
+        self.pool = nn.MaxPool1d(kernel_size=1)
         self.fc1 = nn.Linear(4 * 1, 8)
         self.fc2 = nn.Linear(8, 1)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
         x = x.unsqueeze(1)
         x = self.conv1(x)
         x = self.relu(x)
-        x = self.pool(x)  # Now safe
+        x = self.pool(x)
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
         return x
 
-# Função de treinamento e avaliação
+# Função de treinamento e avaliação com early stopping
 def train_and_evaluate(X_train, X_test, y_train, y_test, client_id):
     start_time = time.time()
     model = CNN().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0007)  # Slightly lower LR
     criterion = nn.MSELoss()
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32).to(device),
                                   torch.tensor(y_train.values, dtype=torch.float32).to(device))
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # Smaller batch size
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
     X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
     y_test_tensor = torch.tensor(y_test.values, dtype=torch.float32).to(device)
+
+    best_loss = float('inf')
+    patience = 2
+    patience_counter = 0
 
     for epoch in range(N_EPOCHS):
         model.train()
@@ -62,6 +74,20 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id):
             loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
+
+        # Early stopping check
+        model.eval()
+        with torch.no_grad():
+            val_outputs = model(X_test_tensor).squeeze()
+            val_loss = criterion(val_outputs, y_test_tensor).item()
+        if val_loss < best_loss:
+            best_loss = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     training_time = time.time() - start_time
     model.eval()
@@ -92,6 +118,9 @@ try:
 except FileNotFoundError:
     print(f"Erro: Arquivo '{DATA_PATH}' não encontrado.")
     exit(1)
+
+# Shuffle data before split
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 np.random.seed(42)
 client_data = df.sample(frac=0.03, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
