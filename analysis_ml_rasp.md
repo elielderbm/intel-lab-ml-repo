@@ -23,8 +23,8 @@ Here’s how the models performed, averaged across all clients:
 | Model             |   RMSE |    MAE |     R2 |   TRAINING_TIME |   TOTAL_TIME |
 |:------------------|-------:|-------:|-------:|----------------:|-------------:|
 | CNN               | 2.219  | 1.6261 | 0.4344 |        567.429  |       567.49 |
-| Linear Regression | 2.3391 | 1.678  | 0.3716 |          0.6954 |         2.26 |
-| Random Forest     | 2.1765 | 1.6057 | 0.4559 |          2.6935 |         3.24 |
+| Linear Regression | 2.1231 | 1.5798 | 0.4823 |          1.3361 |         6.94 |
+| Random Forest     | 1.7529 | 1.2834 | 0.6471 |        452.297  |       513.1  |
 
 - **Linear Regression**: Fastest chef, but sometimes misses the mark (higher errors). Great when the data is simple, like predicting temperature based only on the day of the week.
 - **Random Forest**: Middle ground—pretty accurate and not too slow. It’s like a reliable chef who balances taste and time.
@@ -37,15 +37,28 @@ For experts, here’s the detailed average performance across clients:
 | Model             |   RMSE |    MAE |     R2 |   TRAINING_TIME |   TOTAL_TIME |
 |:------------------|-------:|-------:|-------:|----------------:|-------------:|
 | CNN               | 2.219  | 1.6261 | 0.4344 |        567.429  |       567.49 |
-| Linear Regression | 2.3391 | 1.678  | 0.3716 |          0.6954 |         2.26 |
-| Random Forest     | 2.1765 | 1.6057 | 0.4559 |          2.6935 |         3.24 |
+| Linear Regression | 2.1231 | 1.5798 | 0.4823 |          1.3361 |         6.94 |
+| Random Forest     | 1.7529 | 1.2834 | 0.6471 |        452.297  |       513.1  |
 - **RMSE and MAE**: Lower values indicate better prediction accuracy. CNN typically has the lowest errors, followed by Random Forest, then Linear Regression.
 - **R²**: Values closer to 1 show better model fit. CNN and Random Forest often outperform Linear Regression.
 - **Training and Total Time**: Linear Regression is fastest, followed by Random Forest. CNN requires significantly more time due to its complexity.
 
 ## Statistical Analysis
 We used paired t-tests to check if differences between models are significant:
-
+|    | Metric        | Model 1       | Model 2           |   t_stat |   p_value |
+|---:|:--------------|:--------------|:------------------|---------:|----------:|
+|  0 | rmse          | CNN           | Random Forest     |      nan |       nan |
+|  1 | rmse          | CNN           | Linear Regression |      nan |       nan |
+|  2 | rmse          | Random Forest | Linear Regression |      nan |       nan |
+|  3 | mae           | CNN           | Random Forest     |      nan |       nan |
+|  4 | mae           | CNN           | Linear Regression |      nan |       nan |
+|  5 | mae           | Random Forest | Linear Regression |      nan |       nan |
+|  6 | r2            | CNN           | Random Forest     |      nan |       nan |
+|  7 | r2            | CNN           | Linear Regression |      nan |       nan |
+|  8 | r2            | Random Forest | Linear Regression |      nan |       nan |
+|  9 | training_time | CNN           | Random Forest     |      nan |       nan |
+| 10 | training_time | CNN           | Linear Regression |      nan |       nan |
+| 11 | training_time | Random Forest | Linear Regression |      nan |       nan |
 - **Explanation**: A p-value < 0.05 means the difference is likely real, not random. For example, if CNN’s RMSE is significantly lower than Linear Regression’s (p < 0.05), CNN is reliably more accurate.
 - **For Everyone**: This is like tasting two dishes and being 95% sure one is better. The table shows where one model clearly beats another.
 
@@ -92,7 +105,6 @@ We created several plots to understand the results:
 - **Technical**: Optimize hyperparameters (GridSearchCV), explore ensembles (stacking CNN/Random Forest), investigate data quality, test model compression (knowledge distillation), and validate with cross-validation.
 
 ## Generated Files
-Check these files for more details:
 - `comparison_rmse.png` (bar plots)
 - `boxplot_rmse.png` (box plots)
 - `comparison_mae.png` (bar plots)
