@@ -30,8 +30,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
         ('poly', PolynomialFeatures(degree=2, include_bias=False)),
         ('scaler', StandardScaler()),
         ('rf', RandomForestRegressor(
-            n_estimators=30,      # More trees for better performance, still lightweight
-            max_depth=10,         # Deeper trees for more learning capacity
+            n_estimators=16,      # Reduced number of trees
+            max_depth=7,          # Shallower trees
             min_samples_leaf=2,
             min_samples_split=4,
             random_state=42,
@@ -39,12 +39,12 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
         ))
     ])
 
-    # Hyperparameter grid for GridSearchCV (lightweight grid)
+    # Further reduced hyperparameter grid for GridSearchCV
     param_grid = {
-        'rf__max_depth': [6, 8, 10],
-        'rf__min_samples_leaf': [1, 2, 4],
-        'rf__min_samples_split': [2, 4, 6],
-        'rf__n_estimators': [20, 30]
+        'rf__max_depth': [6, 7],
+        'rf__min_samples_leaf': [2, 4],
+        'rf__min_samples_split': [2, 4],
+        'rf__n_estimators': [12, 16]
     }
 
     grid_search = GridSearchCV(
