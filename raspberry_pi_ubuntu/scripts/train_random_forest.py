@@ -22,24 +22,39 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_random_fores
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names):
+
+def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names, prev_params=None):
+    print(f"[INFO] Iniciando treinamento para {client_id}...")
+
     start_time = time.time()
 
-    # Pipeline: PolynomialFeatures + StandardScaler + RandomForestRegressor
+    # Pipeline base
     pipeline = Pipeline([
         ('poly', PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)),
         ('scaler', StandardScaler()),
         ('rf', RandomForestRegressor(
-            n_estimators=18,      # Slightly increased number of trees
-            max_depth=8,          # Slightly deeper trees
+            n_estimators=18,
+            max_depth=8,
             min_samples_leaf=2,
-            min_samples_split=3,  # Slightly more aggressive split
+            min_samples_split=3,
             random_state=42,
-            n_jobs=1              # Use only one core for Raspberry Pi
+            n_jobs=1
         ))
     ])
 
-    # Slightly expanded hyperparameter grid for GridSearchCV
+    # Se existir parâmetros anteriores, utiliza-os
+    if prev_params is not None:
+        print("[INFO] Parâmetros anteriores carregados para continuar treinamento...")
+        pipeline.named_steps['rf'].set_params(
+            n_estimators=prev_params.get('n_estimators', 18),
+            max_depth=prev_params.get('max_depth', 8),
+            min_samples_leaf=prev_params.get('min_samples_leaf', 2),
+            min_samples_split=prev_params.get('min_samples_split', 3)
+        )
+    else:
+        print("[INFO] Nenhum parâmetro anterior encontrado. Treinamento do zero...")
+
+    # Grade de hiperparâmetros
     param_grid = {
         'rf__max_depth': [7, 8],
         'rf__min_samples_leaf': [2, 3],
@@ -55,20 +70,23 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
         n_jobs=1,
         verbose=0
     )
+
+    print("[INFO] Executando GridSearchCV...")
     grid_search.fit(X_train, y_train)
+
     best_pipeline = grid_search.best_estimator_
     training_time = time.time() - start_time
+
+    print("[INFO] Melhor modelo encontrado.")
 
     y_pred = best_pipeline.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    # Cross-validation scores (3-fold)
     cross_val_r2 = cross_val_score(best_pipeline, X_train, y_train, cv=3, scoring='r2', n_jobs=1)
     cross_val_rmse = np.sqrt(-cross_val_score(best_pipeline, X_train, y_train, cv=3, scoring='neg_mean_squared_error', n_jobs=1))
 
-    # Get feature importances from the RF in the pipeline
     poly = best_pipeline.named_steps['poly']
     expanded_feature_names = poly.get_feature_names_out(feature_names)
     rf = best_pipeline.named_steps['rf']
@@ -89,46 +107,73 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
         'pred_mean': float(np.mean(y_pred)),
         'pred_std': float(np.std(y_pred))
     }
+
     with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
         json.dump(results, f, indent=4)
 
-    # Save model pipeline
+    # Salvar apenas parâmetros essenciais do modelo (não o modelo completo)
+    params_dict = {
+        'n_estimators': rf.n_estimators,
+        'max_depth': rf.max_depth,
+        'min_samples_split': rf.min_samples_split,
+        'min_samples_leaf': rf.min_samples_leaf,
+        'max_features': rf.max_features,
+        'bootstrap': rf.bootstrap
+    }
+    with open(os.path.join(OUTPUT_DIR, f'params_{client_id}.json'), 'w') as f:
+        json.dump(params_dict, f, indent=4)
+
+    # Salvar modelo completo
     with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
         pickle.dump(best_pipeline, f)
 
+    print(f"[INFO] Resultados, parâmetros e modelo salvos para {client_id}.")
     return results
 
-# Carregar e dividir dados
-try:
-    df = pd.read_csv(DATA_PATH)
-except FileNotFoundError:
-    print(f"Erro: Arquivo '{DATA_PATH}' não encontrado.")
-    exit(1)
 
-# Shuffle data before sampling
-df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+# Loop infinito a cada 30 minutos
+while True:
+    total_start_time = time.time()
 
-np.random.seed(42)
-client_data = df.sample(frac=0.03, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
+    try:
+        print("\n[INFO] Carregando dados...")
+        df = pd.read_csv(DATA_PATH)
 
-# Optionally add more features if memory allows
-feature_names = ['humidity', 'light']
-if 'voltage' in df.columns:
-    feature_names.append('voltage')
+        df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+        np.random.seed(42)
+        client_data = df.sample(frac=0.03, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
 
-X = client_data[feature_names]
-y = client_data['temperature']
+        feature_names = ['humidity', 'light']
+        if 'voltage' in df.columns:
+            feature_names.append('voltage')
 
-# Divisão treino/teste
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+        X = client_data[feature_names]
+        y = client_data['temperature']
 
-# Treinar e salvar resultados
-total_start_time = time.time()
-results = train_and_evaluate(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names)
-total_time = time.time() - total_start_time
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
 
-# Salvar tempo total
-with open(os.path.join(OUTPUT_DIR, f'total_time_{CLIENT_ID}.txt'), 'w') as f:
-    f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds")
+        # Carregar apenas parâmetros essenciais se existirem
+        params_path = os.path.join(OUTPUT_DIR, f'params_{CLIENT_ID}.json')
+        prev_params = None
+        if os.path.exists(params_path):
+            with open(params_path, 'r') as f:
+                prev_params = json.load(f)
+            print("[INFO] Parâmetros anteriores carregados. Continuando o treinamento...")
+        else:
+            print("[INFO] Nenhum parâmetro anterior encontrado. Criando novo modelo...")
+
+        results = train_and_evaluate(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names, prev_params)
+
+        total_time = time.time() - total_start_time
+        with open(os.path.join(OUTPUT_DIR, f'total_time_{CLIENT_ID}.txt'), 'w') as f:
+            f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds")
+
+        print(f"[INFO] Execução concluída em {total_time:.2f} segundos. Aguardando 30 minutos...\n")
+        time.sleep(1800)  # 30 minutos
+
+    except Exception as e:
+        print(f"[ERRO] Ocorreu um erro: {e}")
+        print("[INFO] Tentando novamente em 30 minutos...\n")
+        time.sleep(1800)
