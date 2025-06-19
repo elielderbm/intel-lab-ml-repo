@@ -10,6 +10,7 @@ import time
 import os
 import sys
 import json
+import gc
 
 # Configuração
 DATA_PATH = next(
@@ -20,7 +21,7 @@ DATA_PATH = next(
 ) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_random_forest')
-N_ESTIMATORS = 100
+N_ESTIMATORS = 50  # Reduzido para menor uso de recurso e memória
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -33,17 +34,24 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
         print("[INFO] Parâmetros anteriores carregados. Continuando o treinamento...")
         model = RandomForestRegressor(
             n_estimators=prev_params['n_estimators'] + N_ESTIMATORS,
-            random_state=42,
-            max_depth=prev_params.get('max_depth'),
+            random_state=84,
+            max_depth=prev_params.get('max_depth', 12),  # Limita profundidade para reduzir memória
             min_samples_split=prev_params.get('min_samples_split', 2),
-            min_samples_leaf=prev_params.get('min_samples_leaf', 1),
+            min_samples_leaf=prev_params.get('min_samples_leaf', 2),  # Aumenta folhas mínimas
             max_features=prev_params.get('max_features', 'auto'),
-            bootstrap=prev_params.get('bootstrap', True)
+            bootstrap=prev_params.get('bootstrap', True),
+            n_jobs=1  # Limita a apenas 1 núcleo para reduzir uso de CPU/memória
         )
         model.fit(X_train, y_train)
     else:
         print("[INFO] Nenhum parâmetro anterior encontrado. Criando novo modelo...")
-        model = RandomForestRegressor(n_estimators=N_ESTIMATORS, random_state=42)
+        model = RandomForestRegressor(
+            n_estimators=N_ESTIMATORS,
+            random_state=84,
+            max_depth=12,  # Limita profundidade para reduzir memória
+            min_samples_leaf=2,  # Aumenta folhas mínimas
+            n_jobs=1
+        )
         model.fit(X_train, y_train)
 
     training_time = time.time() - start_time
@@ -63,6 +71,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     plt.title(f'Predictions vs Actual - Random Forest ({client_id})')
     plt.savefig(os.path.join(OUTPUT_DIR, f'random_forest_scatter_{client_id}.png'))
     plt.close()
+    plt.clf()
+    plt.close('all')
 
     # Feature importance
     importances = model.feature_importances_
@@ -74,6 +84,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, f'random_forest_importance_{client_id}.png'))
     plt.close()
+    plt.clf()
+    plt.close('all')
 
     # Salvar resultados
     results = {
@@ -106,6 +118,10 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
         pickle.dump(model, f)
 
+    # Libera memória explicitamente
+    del model, y_pred, importances, indices
+    gc.collect()
+
     return results
 
 ############################
@@ -121,13 +137,13 @@ while True:
         exit(1)
 
     # Preparação dos dados
-    np.random.seed(42)
+    np.random.seed(84)
     client_data = df.sample(frac=1.0 / 3.0, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
     X = client_data[['moteid', 'humidity', 'light', 'voltage']]
     y = client_data['temperature']
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=84
     )
 
     scaler = StandardScaler()
@@ -152,9 +168,13 @@ while True:
     print(f"[RESULTADO] RMSE: {results['rmse']:.4f}, MAE: {results['mae']:.4f}, R2: {results['r2']:.4f}")
     print(f"[INFO] Número total de árvores no modelo atual: {results['n_estimators']}")
     print(f"[INFO] Tempo total da execução: {total_time:.2f} segundos")
-    print("[PROCESSO] Aguardando 30 minutos para próxima execução...\n")
+    print("[PROCESSO] Aguardando 15 minutos para próxima execução...\n")
 
     with open(os.path.join(OUTPUT_DIR, f'total_time_{CLIENT_ID}.txt'), 'w') as f:
         f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds\n")
 
-    time.sleep(1800)  # Esperar 30 minutos (1800 segundos)
+    # Libera memória explicitamente
+    del df, client_data, X, y, X_train, X_test, y_train, y_test, X_train_scaled, X_test_scaled, results
+    gc.collect()
+
+    time.sleep(900)  # Esperar 15 minutos
