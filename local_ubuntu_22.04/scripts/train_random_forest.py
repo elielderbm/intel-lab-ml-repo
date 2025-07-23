@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
@@ -14,11 +15,11 @@ import gc
 
 # Configuração
 DATA_PATH = next(
-    (os.path.join(root, 'intel_lab_data_cleaned.csv')
+    (os.path.join(root, 'weather_hourly_clean.csv')
      for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data'))
-     if 'intel_lab_data_cleaned.csv' in files),
+     if 'weather_hourly_clean.csv' in files),
     None
-) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
+) or exit("Erro: Arquivo 'weather_hourly_clean.csv' não encontrado.")
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_random_forest')
 N_ESTIMATORS = 50  # Reduzido para menor uso de recurso e memória
@@ -27,7 +28,7 @@ CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Função de treinamento e avaliação
-def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=None):
+def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names, prev_params=None):
     start_time = time.time()
 
     if prev_params:
@@ -35,24 +36,24 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
         model = RandomForestRegressor(
             n_estimators=prev_params['n_estimators'] + N_ESTIMATORS,
             random_state=84,
-            max_depth=prev_params.get('max_depth', 12),  # Limita profundidade para reduzir memória
+            max_depth=prev_params.get('max_depth', 12),
             min_samples_split=prev_params.get('min_samples_split', 2),
-            min_samples_leaf=prev_params.get('min_samples_leaf', 2),  # Aumenta folhas mínimas
+            min_samples_leaf=prev_params.get('min_samples_leaf', 2),
             max_features=prev_params.get('max_features', 'auto'),
             bootstrap=prev_params.get('bootstrap', True),
-            n_jobs=1  # Limita a apenas 1 núcleo para reduzir uso de CPU/memória
+            n_jobs=1
         )
-        model.fit(X_train, y_train)
     else:
         print("[INFO] Nenhum parâmetro anterior encontrado. Criando novo modelo...")
         model = RandomForestRegressor(
             n_estimators=N_ESTIMATORS,
             random_state=84,
-            max_depth=12,  # Limita profundidade para reduzir memória
-            min_samples_leaf=2,  # Aumenta folhas mínimas
+            max_depth=12,
+            min_samples_leaf=2,
             n_jobs=1
         )
-        model.fit(X_train, y_train)
+
+    model.fit(X_train, y_train)
 
     training_time = time.time() - start_time
     avg_tree_time = training_time / model.n_estimators
@@ -66,8 +67,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     plt.figure(figsize=(8, 6))
     plt.scatter(y_test, y_pred, alpha=0.5)
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-    plt.xlabel('Real Temperature (°C)')
-    plt.ylabel('Predicted Temperature (°C)')
+    plt.xlabel('Real Temperature (K)')
+    plt.ylabel('Predicted Temperature (K)')
     plt.title(f'Predictions vs Actual - Random Forest ({client_id})')
     plt.savefig(os.path.join(OUTPUT_DIR, f'random_forest_scatter_{client_id}.png'))
     plt.close()
@@ -77,9 +78,9 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     # Feature importance
     importances = model.feature_importances_
     indices = np.argsort(importances)[::-1]
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 6))
     plt.bar(range(len(importances)), importances[indices], align='center')
-    plt.xticks(range(len(importances)), [f'X{i}' for i in indices], rotation=45)
+    plt.xticks(range(len(importances)), [feature_names[i] for i in indices], rotation=45)
     plt.title(f'Feature Importance - Random Forest ({client_id})')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, f'random_forest_importance_{client_id}.png'))
@@ -102,7 +103,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, prev_params=
     with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
         json.dump(results, f, indent=4)
 
-    # Salvar apenas parâmetros essenciais do modelo (não o modelo completo)
+    # Salvar apenas parâmetros essenciais do modelo
     params_dict = {
         'n_estimators': model.n_estimators,
         'max_depth': model.max_depth,
@@ -139,16 +140,31 @@ while True:
     # Preparação dos dados
     np.random.seed(84)
     client_data = df.sample(frac=1.0 / 3.0, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
-    X = client_data[['moteid', 'humidity', 'light', 'voltage']]
+
+    # Features e target compatíveis com o novo dataset completo
+    X_raw = client_data[['city', 'humidity', 'pressure', 'weather_desc', 'wind_direction', 'wind_speed']]
     y = client_data['temperature']
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=84
+    # Pré-processamento: numéricas e categóricas
+    numeric_features = ['humidity', 'pressure', 'wind_direction', 'wind_speed']
+    categorical_features = ['city', 'weather_desc']
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', StandardScaler(), numeric_features),
+            ('cat', OneHotEncoder(sparse_output=False, handle_unknown='ignore'), categorical_features)
+        ]
     )
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    X_processed = preprocessor.fit_transform(X_raw)
+    feature_names = (
+        numeric_features +
+        list(preprocessor.named_transformers_['cat'].get_feature_names_out(categorical_features))
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_processed, y, test_size=0.2, random_state=84
+    )
 
     # Carregar apenas parâmetros essenciais se existirem
     params_path = os.path.join(OUTPUT_DIR, f'params_{CLIENT_ID}.json')
@@ -162,7 +178,7 @@ while True:
 
     # Treinar e avaliar
     total_start_time = time.time()
-    results = train_and_evaluate(X_train_scaled, X_test_scaled, y_train, y_test, CLIENT_ID, prev_params)
+    results = train_and_evaluate(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names, prev_params)
     total_time = time.time() - total_start_time
 
     print(f"[RESULTADO] RMSE: {results['rmse']:.4f}, MAE: {results['mae']:.4f}, R2: {results['r2']:.4f}")
@@ -174,7 +190,7 @@ while True:
         f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds\n")
 
     # Libera memória explicitamente
-    del df, client_data, X, y, X_train, X_test, y_train, y_test, X_train_scaled, X_test_scaled, results
+    del df, client_data, X_raw, y, X_train, X_test, y_train, y_test, X_processed, results
     gc.collect()
 
     time.sleep(900)  # Esperar 15 minutos

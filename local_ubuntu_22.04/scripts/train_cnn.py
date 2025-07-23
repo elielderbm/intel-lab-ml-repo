@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import torch
@@ -15,11 +16,11 @@ import json
 
 # Configuração
 DATA_PATH = next(
-    (os.path.join(root, 'intel_lab_data_cleaned.csv')
+    (os.path.join(root, 'weather_hourly_clean.csv')
      for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data'))
-     if 'intel_lab_data_cleaned.csv' in files),
+     if 'weather_hourly_clean.csv' in files),
     None
-) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
+) or exit("Erro: Arquivo 'weather_hourly_clean.csv' não encontrado.")
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_cnn')
 N_EPOCHS = 100
@@ -31,12 +32,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Definir CNN
 class CNN(nn.Module):
-    def __init__(self):
+    def __init__(self, input_size):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv1d(1, 16, kernel_size=2, stride=1)
         self.relu = nn.ReLU()
         self.pool = nn.MaxPool1d(kernel_size=2)
-        self.fc1 = nn.Linear(16 * 1, 32)
+        
+        # Para determinar o tamanho após conv1 e pool, calcule:
+        conv_out_size = input_size - 1  # kernel_size=2 => reduz em 1
+        pool_out_size = conv_out_size // 2
+        
+        self.fc1 = nn.Linear(16 * pool_out_size, 32)
         self.fc2 = nn.Linear(32, 1)
 
     def forward(self, x):
@@ -106,8 +112,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, model):
     plt.figure(figsize=(8, 6))
     plt.scatter(y_test, y_pred, alpha=0.5)
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-    plt.xlabel('Real Temperature (°C)')
-    plt.ylabel('Predicted Temperature (°C)')
+    plt.xlabel('Real Temperature (K)')
+    plt.ylabel('Predicted Temperature (K)')
     plt.title(f'Predictions vs Actual - CNN ({client_id})')
     plt.savefig(os.path.join(OUTPUT_DIR, f'cnn_scatter_{client_id}.png'))
     plt.close()
@@ -160,18 +166,30 @@ while True:
         client_data = df.sample(frac=1.0 / 3.0, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
 
         # Dados
-        X = client_data[['moteid', 'humidity', 'light', 'voltage']]
+        X_raw = client_data[['city', 'humidity', 'pressure', 'weather_desc', 'wind_direction', 'wind_speed']]
         y = client_data['temperature']
 
-        scaler = StandardScaler()
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        # Pré-processamento: numéricas e categóricas
+        numeric_features = ['humidity', 'pressure', 'wind_direction', 'wind_speed']
+        categorical_features = ['city', 'weather_desc']
 
-        # Carregar apenas coeficientes se existirem
-        model = CNN().to(device)
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', StandardScaler(), numeric_features),
+                ('cat', OneHotEncoder(sparse_output=False, handle_unknown='ignore'), categorical_features)
+            ]
+        )
+
+        X_processed = preprocessor.fit_transform(X_raw)
+        input_size = X_processed.shape[1]
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_processed, y, test_size=0.2, random_state=42
+        )
+
+        # Instanciar modelo com input compatível
+        model = CNN(input_size).to(device)
+
         coeffs_path = os.path.join(OUTPUT_DIR, f'coeffs_{CLIENT_ID}.pt')
         if os.path.exists(coeffs_path):
             model.load_state_dict(torch.load(coeffs_path))
@@ -182,7 +200,7 @@ while True:
         # Treinar e avaliar
         total_start_time = time.time()
         results = train_and_evaluate(
-            X_train_scaled, X_test_scaled, y_train, y_test, CLIENT_ID, model
+            X_train, X_test, y_train, y_test, CLIENT_ID, model
         )
         total_time = time.time() - total_start_time
 
