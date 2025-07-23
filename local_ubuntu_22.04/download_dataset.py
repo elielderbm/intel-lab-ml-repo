@@ -4,12 +4,12 @@ from pathlib import Path
 import gdown
 
 def download_dataset():
-    """Download intel_lab_data_cleaned.csv from Google Drive."""
+    """Download weather_hourly_clean.csv from Google Drive."""
     print("Downloading dataset from Google Drive...")
 
     # Google Drive file ID
-    file_id = "1zAPPGBgvBLCPLjynx0BNRFbayZSfloEp"
-    dest_path = Path("data/intel_lab_data_cleaned.csv")
+    file_id = "1w2jGrYUeOH3eJIQRDZd74HJb70nmQN8-"
+    dest_path = Path("data/weather_hourly_clean.csv")
     url = f"https://drive.google.com/uc?id={file_id}"
 
     # Create data directory if it doesn't exist
