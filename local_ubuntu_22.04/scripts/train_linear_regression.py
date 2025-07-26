@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.linear_model import RidgeCV
+from sklearn.linear_model import ElasticNetCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
 import matplotlib.pyplot as plt
@@ -30,8 +30,22 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     print("[INFO] Iniciando treinamento...")
 
     start_time = time.time()
-    alphas = [0.01, 0.1, 1.0, 10.0, 100.0]
-    model = RidgeCV(alphas=alphas, cv=5)
+    
+    # Configurações melhoradas para ElasticNetCV
+    l1_ratio = [.1, .5, .7, .9, .95, .99, 1]  # Variando de quase Ridge (0.1) até Lasso puro (1)
+    alphas = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+    
+    # Modelo com mais iterações e seleção automática do melhor alpha/l1_ratio
+    model = ElasticNetCV(
+        l1_ratio=l1_ratio,
+        alphas=alphas,
+        cv=5,
+        max_iter=10000,
+        tol=1e-4,
+        selection='random',  # Menos sensível a correlação entre features
+        random_state=42
+    )
+    
     model.fit(X_train, y_train)
 
     if prev_coefs is not None and prev_intercept is not None:
@@ -48,7 +62,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"[RESULTADO] RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}, Alpha: {model.alpha_}")
+    print(f"[RESULTADO] RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}, Alpha: {model.alpha_}, L1_ratio: {model.l1_ratio_}")
 
     # Gráfico de dispersão
     plt.figure(figsize=(8, 6))
@@ -56,7 +70,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
     plt.xlabel('Real Temperature')
     plt.ylabel('Predicted Temperature')
-    plt.title(f'Predictions vs Actual - RidgeCV ({client_id})')
+    plt.title(f'Predictions vs Actual - ElasticNetCV ({client_id})')
     plt.savefig(os.path.join(OUTPUT_DIR, f'prediction_scatter_{client_id}.png'))
     plt.close()
 
@@ -65,7 +79,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.hist(residuals, bins=50, alpha=0.75)
     plt.xlabel("Prediction Error")
     plt.ylabel("Frequency")
-    plt.title(f"Residuals Histogram - RidgeCV ({client_id})")
+    plt.title(f"Residuals Histogram - ElasticNetCV ({client_id})")
     plt.savefig(os.path.join(OUTPUT_DIR, f"residuals_histogram_{client_id}.png"))
     plt.close()
 
@@ -112,7 +126,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.figure(figsize=(10, 6))
     plt.barh(feature_names, coef)
     plt.xlabel('Coefficient Value')
-    plt.title(f'Feature Influence (Ridge) - {client_id}')
+    plt.title(f'Feature Influence (ElasticNet) - {client_id}')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, f'coefficients_{client_id}.png'))
     plt.close()
@@ -129,6 +143,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
         'cross_val_r2_mean': cross_val_r2.mean(),
         'cross_val_rmse_mean': cross_val_rmse.mean(),
         'best_alpha': model.alpha_,
+        'best_l1_ratio': model.l1_ratio_,
         'coefs': dict(zip(feature_names, coef)),
         'intercept': float(model.intercept_),
         'residuals': residuals.tolist(),
