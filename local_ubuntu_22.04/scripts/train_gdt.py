@@ -1,8 +1,9 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import cross_val_score
 import matplotlib.pyplot as plt
 import xgboost as xgb
 import time
@@ -27,18 +28,43 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Função para criar e configurar o modelo XGBoost
 def create_xgb_model():
     return xgb.XGBRegressor(
-        n_estimators=100,
-        learning_rate=0.03,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        n_estimators=200,
+        learning_rate=0.05,
+        max_depth=5,
+        subsample=0.7,
+        colsample_bytree=0.7,
         random_state=42
     )
 
-# Treinamento
+# Treinamento com validação cruzada e busca de hiperparâmetros
 def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, model):
     print("[INFO] Iniciando treinamento...")
     start_time = time.time()
+
+    # Validação cruzada para avaliar estabilidade
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='neg_mean_squared_error')
+    cv_rmse = np.sqrt(-cv_scores)
+    print(f"[INFO] Validação cruzada RMSE: {cv_rmse.mean():.4f} ± {cv_rmse.std():.4f}")
+
+    # Busca de hiperparâmetros
+    param_grid = {
+        'n_estimators': [100, 200],
+        'learning_rate': [0.01, 0.05],
+        'max_depth': [3, 5],
+        'subsample': [0.7, 0.8],
+        'colsample_bytree': [0.7, 0.8]
+    }
+    grid_search = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=3,
+        scoring='neg_mean_squared_error',
+        n_jobs=-1,
+        verbose=0
+    )
+    grid_search.fit(X_train, y_train)
+    model = grid_search.best_estimator_
+    print(f"[INFO] Melhores hiperparâmetros: {grid_search.best_params_}")
 
     iteration_times = []
     train_rmse = []
@@ -48,7 +74,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, model):
     for iteration in range(N_ITERATIONS):
         iteration_start = time.time()
         
-        # Treinamento incremental
+        # Treinamento com os melhores hiperparâmetros
         model.fit(
             X_train, 
             y_train,
@@ -103,7 +129,10 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, model):
         'y_pred': y_pred.tolist(),
         'y_test': y_test.tolist(),
         'train_rmse': train_rmse,
-        'test_rmse': test_rmse
+        'test_rmse': test_rmse,
+        'cv_rmse_mean': cv_rmse.mean(),
+        'cv_rmse_std': cv_rmse.std(),
+        'best_params': grid_search.best_params_
     }
 
     with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
