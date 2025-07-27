@@ -22,9 +22,9 @@ raspberry_pi_ubuntu/ml_results_cnn/*
 !ml_results_cnn/.gitkeep
 
 # Dados
-local_ubuntu_22.04/data/intel_lab_data_cleaned.csv
-raspberry_pi_ubuntu/data/intel_lab_data_cleaned.csv
-docker_ubuntu_24.04/data/intel_lab_data_cleaned.csv
+local_ubuntu_22.04/data/beijing_pm2_dataset.csv
+raspberry_pi_ubuntu/data/beijing_pm2_dataset.csv
+docker_ubuntu_24.04/data/beijing_pm2_dataset.csv
 
 # Ambientes virtuais
 venv/

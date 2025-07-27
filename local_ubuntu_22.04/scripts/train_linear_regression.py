@@ -1,45 +1,57 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.linear_model import RidgeCV
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
+from sklearn.preprocessing import RobustScaler
+from sklearn.linear_model import SGDRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 import matplotlib.pyplot as plt
 import pickle
 import time
 import os
 import sys
 import json
+import traceback
+from scipy.stats import loguniform
 
-# Configuração
 DATA_PATH = next(
-    (os.path.join(root, 'intel_lab_data_cleaned.csv')
+    (os.path.join(root, 'beijing_pm2_dataset.csv')
      for root, _, files in os.walk(os.path.join(os.path.dirname(__file__), '../data'))
-     if 'intel_lab_data_cleaned.csv' in files),
+     if 'beijing_pm2_dataset.csv' in files),
     None
-) or exit("Erro: Arquivo 'intel_lab_data_cleaned.csv' não encontrado.")
+) or exit("Erro: Arquivo 'beijing_pm2_dataset.csv' não encontrado.")
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '../ml_results_linear_regression')
 CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else 'client1'
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Função de treinamento e avaliação
-def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names, prev_coefs=None, prev_intercept=None):
-    print("[INFO] Iniciando treinamento...")
+
+def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_names,
+                       prev_coef=None, prev_intercept=None,
+                       alpha=0.0001, learning_rate='invscaling', eta0=0.01):
+    print(f"[INFO] Treinando com alpha={alpha:.6g}, learning_rate={learning_rate}, eta0={eta0:.6g}")
+
+    model = SGDRegressor(
+        penalty='l2',
+        alpha=alpha,
+        max_iter=10000,
+        tol=1e-5,
+        warm_start=True,
+        random_state=42,
+        learning_rate=learning_rate,
+        eta0=eta0
+    )
+
+    if prev_coef is not None and prev_intercept is not None:
+        prev_coef = np.array(prev_coef).flatten()
+        model.coef_ = prev_coef
+        model.intercept_ = np.array([prev_intercept])
+        model._initialized = True
 
     start_time = time.time()
-    alphas = [0.01, 0.1, 1.0, 10.0, 100.0]
-    model = RidgeCV(alphas=alphas, cv=5)
     model.fit(X_train, y_train)
-    # Se houver coeficientes anteriores, inicializa o modelo com eles antes de treinar
-    if prev_coefs is not None and prev_intercept is not None:
-        model.coef_ = prev_coefs
-        model.intercept_ = prev_intercept
-        # Re-treina para ajustar a partir dos coeficientes anteriores
-        model.fit(X_train, y_train)
-
     training_time = time.time() - start_time
 
     y_pred = model.predict(X_test)
@@ -49,163 +61,204 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"[RESULTADO] RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}, Alpha: {model.alpha_}")
+    print(f"[RESULTADO] RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
 
-    # Gráfico de dispersão
+    return {
+        'model': model,
+        'rmse': rmse,
+        'mae': mae,
+        'r2': r2,
+        'training_time': training_time,
+        'coef': model.coef_,
+        'intercept': model.intercept_[0],
+        'alpha': alpha,
+        'learning_rate': learning_rate,
+        'eta0': eta0,
+        'y_pred': y_pred,
+        'y_test': y_test
+    }
+
+
+def save_model_and_results(model, coef, intercept, params, client_id, feature_names, X_test, y_test):
+    with open(os.path.join(OUTPUT_DIR, f'coeffs_{client_id}.json'), 'w') as f:
+        json.dump({'coefs': coef.tolist(), 'intercept': float(intercept), 'alpha': params['alpha'],
+                   'learning_rate': params['learning_rate'], 'eta0': params['eta0']}, f, indent=4)
+
+    with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
+        pickle.dump(model, f)
+
+    y_pred = model.predict(X_test)
+    residuals = y_test - y_pred
+
     plt.figure(figsize=(8, 6))
     plt.scatter(y_test, y_pred, alpha=0.5)
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
     plt.xlabel('Real Temperature (°C)')
     plt.ylabel('Predicted Temperature (°C)')
-    plt.title(f'Predictions vs Actual - RidgeCV ({client_id})')
+    plt.title(f'Predictions vs Actual - SGDRegressor ({client_id})')
     plt.savefig(os.path.join(OUTPUT_DIR, f'prediction_scatter_{client_id}.png'))
     plt.close()
 
-    # Histograma dos resíduos
     plt.figure(figsize=(8, 6))
     plt.hist(residuals, bins=50, alpha=0.75)
     plt.xlabel("Prediction Error (°C)")
     plt.ylabel("Frequency")
-    plt.title(f"Residuals Histogram - RidgeCV ({client_id})")
+    plt.title(f"Residuals Histogram - SGDRegressor ({client_id})")
     plt.savefig(os.path.join(OUTPUT_DIR, f"residuals_histogram_{client_id}.png"))
     plt.close()
 
-    # Distribuição dos reais vs previstos
-    plt.figure(figsize=(8, 6))
-    plt.hist(y_test, bins=50, alpha=0.5, label='Actual')
-    plt.hist(y_pred, bins=50, alpha=0.5, label='Predicted')
-    plt.title(f'Distribution Comparison - {client_id}')
-    plt.xlabel('Temperature (°C)')
-    plt.ylabel('Frequency')
-    plt.legend()
-    plt.savefig(os.path.join(OUTPUT_DIR, f'hist_actual_vs_pred_{client_id}.png'))
-    plt.close()
-
-    # Erro por faixa de temperatura
-    df_eval = pd.DataFrame({'y_true': y_test, 'y_pred': y_pred})
-    df_eval['temp_bin'] = pd.cut(df_eval['y_true'], bins=10)
-    grouped = df_eval.groupby('temp_bin').apply(
-        lambda g: pd.Series({
-            'mae': mean_absolute_error(g['y_true'], g['y_pred']),
-            'rmse': np.sqrt(mean_squared_error(g['y_true'], g['y_pred']))
-        })
-    )
-    grouped.plot(kind='bar', figsize=(10, 6))
-    plt.title(f'Error by Temperature Range - {client_id}')
-    plt.ylabel('Error')
-    plt.xlabel('Temperature Bins')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, f'error_by_temp_bin_{client_id}.png'))
-    plt.close()
-
-    # Coeficientes
-    coef = model.coef_
     plt.figure(figsize=(10, 6))
     plt.barh(feature_names, coef)
     plt.xlabel('Coefficient Value')
-    plt.title(f'Feature Influence (Ridge) - {client_id}')
+    plt.title(f'Feature Influence (SGDRegressor) - {client_id}')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, f'coefficients_{client_id}.png'))
     plt.close()
 
-    # Cross-validation
-    cross_val_r2 = cross_val_score(model, X_train, y_train, cv=5, scoring='r2')
-    cross_val_rmse = np.sqrt(-cross_val_score(model, X_train, y_train, cv=5, scoring='neg_mean_squared_error'))
+    print("[INFO] Melhor modelo e gráficos salvos.")
 
-    # Salvar resultados
-    results = {
-        'rmse': rmse,
-        'mae': mae,
-        'r2': r2,
-        'training_time': training_time,
-        'cross_val_r2_mean': cross_val_r2.mean(),
-        'cross_val_rmse_mean': cross_val_rmse.mean(),
-        'best_alpha': model.alpha_,
-        'coefs': dict(zip(feature_names, coef)),
-        'intercept': float(model.intercept_),
-        'residuals': residuals.tolist(),
-        'y_pred': y_pred.tolist(),
-        'y_test': y_test.tolist(),
-        'y_mean': np.mean(y_test),
-        'y_std': np.std(y_test),
-        'pred_mean': np.mean(y_pred),
-        'pred_std': np.std(y_pred)
+
+def progressive_training_loop(X_train, X_test, y_train, y_test, client_id, feature_names,
+                              prev_coef=None, prev_intercept=None):
+    best_score = -np.inf
+    best_params = {
+        'alpha': 0.0001,
+        'learning_rate': 'invscaling',
+        'eta0': 0.01
     }
+    best_model = None
 
-    with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
-        json.dump(results, f, indent=4)
+    history_path = os.path.join(OUTPUT_DIR, f'history_{client_id}.json')
+    # Limpa histórico antigo
+    if os.path.exists(history_path):
+        os.remove(history_path)
 
-    # Salvar apenas coeficientes e intercept em arquivo separado
-    coefs_dict = {
-        'coefs': coef.tolist(),
-        'intercept': float(model.intercept_)
-    }
-    with open(os.path.join(OUTPUT_DIR, f'coeffs_{client_id}.json'), 'w') as f:
-        json.dump(coefs_dict, f, indent=4)
+    for ciclo in range(10):
+        alpha = loguniform(1e-5, 1e-1).rvs()
+        eta0 = loguniform(1e-4, 1e-1).rvs()
+        learning_rate = np.random.choice(['invscaling', 'adaptive', 'constant'])
 
-    # Salvar modelo completo
-    with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
-        pickle.dump(model, f)
+        # Perturbação mínima para evitar overfitting estático
+        X_train_perturbed = X_train + np.random.normal(0, 1e-5, X_train.shape)
 
-    print("[INFO] Resultados, coeficientes e modelo salvos com sucesso.\n")
+        results = train_and_evaluate(
+            X_train_perturbed, X_test, y_train, y_test, client_id, feature_names,
+            prev_coef, prev_intercept,
+            alpha=alpha,
+            learning_rate=learning_rate,
+            eta0=eta0
+        )
 
-    return results
+        # Debug coeficientes
+        coef_info = dict(zip(feature_names, results['coef']))
+        print("[DEBUG] Coeficientes:", coef_info)
 
-#######################################
-# Loop Infinito - Main
-#######################################
+        # Salva histórico do ciclo
+        with open(history_path, 'a') as f:
+            json.dump({
+                'cycle': ciclo + 1,
+                'alpha': alpha,
+                'eta0': eta0,
+                'learning_rate': learning_rate,
+                'r2': results['r2'],
+                'rmse': results['rmse'],
+                'mae': results['mae']
+            }, f)
+            f.write('\n')
+
+        if results['r2'] > best_score:
+            best_score = results['r2']
+            best_params = {
+                'alpha': alpha,
+                'learning_rate': learning_rate,
+                'eta0': eta0
+            }
+            best_model = results['model']
+            best_coef = results['coef']
+            best_intercept = results['intercept']
+            print("[MELHORIA] Novo melhor modelo encontrado.")
+        else:
+            print("[INFO] Nenhuma melhoria neste ciclo.")
+
+        print(f"[CICLO {ciclo+1}/10] Melhor R2: {best_score:.4f} com params: {best_params}")
+        time.sleep(1)
+
+    save_model_and_results(best_model, best_coef, best_intercept, best_params,
+                           client_id, feature_names, X_test, y_test)
+
+    return best_params, best_model, best_coef, best_intercept
+
+
 while True:
     print("\n[PROCESSO] Iniciando novo ciclo de treinamento e validação...\n")
-
     try:
         df = pd.read_csv(DATA_PATH)
+        df = df.dropna(subset=['TEMP'])
 
-        np.random.seed(42)
-        client_data = df.sample(frac=1.0 / 3.0, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
+        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce')
+        df = df.dropna(subset=['datetime'])
 
-        # Separar X e y
-        X = client_data[['moteid', 'humidity', 'light', 'voltage']]
-        y = client_data['temperature']
+        df['hour'] = df['datetime'].dt.hour
+        df['dayofweek'] = df['datetime'].dt.dayofweek
 
-        # Pré-processamento
-        numeric_features = ['humidity', 'light', 'voltage']
-        categorical_features = ['moteid']
+        df['sin_hour'] = np.sin(2 * np.pi * df['hour'] / 24)
+        df['cos_hour'] = np.cos(2 * np.pi * df['hour'] / 24)
 
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ('num', StandardScaler(), numeric_features),
-                ('cat', OneHotEncoder(sparse_output=False, handle_unknown='ignore'), categorical_features)
-            ]
-        )
+        # Features originais
+        features = ['pm2.5', 'DEWP', 'PRES', 'Iws', 'sin_hour', 'cos_hour', 'dayofweek']
 
-        X_processed = preprocessor.fit_transform(X)
-        feature_names = (
-            numeric_features +
-            list(preprocessor.named_transformers_['cat'].get_feature_names_out(categorical_features))
-        )
+        # Features de interação (novas)
+        df['pm2.5_x_Iws'] = df['pm2.5'] * df['Iws']
+        df['DEWP_x_PRES'] = df['DEWP'] * df['PRES']
+        features.extend(['pm2.5_x_Iws', 'DEWP_x_PRES'])
 
-        # Divisão treino/teste
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_processed, y, test_size=0.2, random_state=42
-        )
+        target = 'TEMP'
 
-        # Carregar apenas coeficientes se existirem
+        df = df[features + [target]]
+
+        # Filtro de outliers via z-score (limite 4 desvios)
+        z_scores = np.abs((df[features] - df[features].mean()) / df[features].std())
+        df = df[(z_scores < 4).all(axis=1)]
+
+        imputer = SimpleImputer(strategy='median')
+        df[features] = imputer.fit_transform(df[features])
+
+        seed = 42 + int(CLIENT_ID[-1])
+        client_data = df.sample(frac=1.0 / 3.0, random_state=seed).reset_index(drop=True)
+
+        X = client_data[features]
+        y = client_data[target]
+
+        numeric_features = features
+        preprocessor = ColumnTransformer([
+            ('num', RobustScaler(), numeric_features)
+        ])
+
+        splitter = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
+        for train_idx, test_idx in splitter.split(X, client_data['dayofweek']):
+            X_train_raw = X.iloc[train_idx]
+            X_test_raw = X.iloc[test_idx]
+            y_train = y.iloc[train_idx]
+            y_test = y.iloc[test_idx]
+
+        X_train = preprocessor.fit_transform(X_train_raw)
+        X_test = preprocessor.transform(X_test_raw)
+        feature_names = numeric_features
+
         coeffs_path = os.path.join(OUTPUT_DIR, f'coeffs_{CLIENT_ID}.json')
-        prev_coefs = None
-        prev_intercept = None
+        prev_coef = prev_intercept = None
         if os.path.exists(coeffs_path):
             with open(coeffs_path, 'r') as f:
-                coeffs_data = json.load(f)
-                prev_coefs = np.array(coeffs_data['coefs'])
-                prev_intercept = coeffs_data['intercept']
-            print("[INFO] Coeficientes anteriores carregados. Continuando o treinamento...")
+                data = json.load(f)
+                prev_coef = np.array(data['coefs'])
+                prev_intercept = data['intercept']
+            print("[INFO] Coeficientes anteriores carregados.")
         else:
-            print("[INFO] Nenhum coeficiente anterior encontrado. Criando novo modelo.")
+            print("[INFO] Nenhum coeficiente anterior encontrado.")
 
-        # Treinar e avaliar
         total_start_time = time.time()
-        results = train_and_evaluate(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names, prev_coefs, prev_intercept)
+        progressive_training_loop(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names,
+                                  prev_coef, prev_intercept)
         total_time = time.time() - total_start_time
 
         print(f"[INFO] Tempo total da execução: {total_time:.2f} segundos")
@@ -214,9 +267,10 @@ while True:
         with open(os.path.join(OUTPUT_DIR, f'total_time_{CLIENT_ID}.txt'), 'w') as f:
             f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds\n")
 
-        time.sleep(1800)  # 30 minutos
+        time.sleep(1800)
 
     except Exception as e:
         print(f"[ERRO] Ocorreu um erro: {e}")
+        print(traceback.format_exc())
         print("[PROCESSO] Tentando novamente em 30 minutos...\n")
         time.sleep(1800)
