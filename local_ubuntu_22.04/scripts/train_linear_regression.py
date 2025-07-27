@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import RidgeCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
@@ -30,14 +30,12 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     print("[INFO] Iniciando treinamento...")
 
     start_time = time.time()
-    alphas = [0.01, 0.1, 1.0, 10.0, 100.0]
+    alphas = [0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]  # Valores intermediários para balancear regularização
     model = RidgeCV(alphas=alphas, cv=5)
     model.fit(X_train, y_train)
-    # Se houver coeficientes anteriores, inicializa o modelo com eles antes de treinar
     if prev_coefs is not None and prev_intercept is not None:
         model.coef_ = prev_coefs
         model.intercept_ = prev_intercept
-        # Re-treina para ajustar a partir dos coeficientes anteriores
         model.fit(X_train, y_train)
 
     training_time = time.time() - start_time
@@ -51,7 +49,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
 
     print(f"[RESULTADO] RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}, Alpha: {model.alpha_}")
 
-    # Gráfico de dispersão
     plt.figure(figsize=(8, 6))
     plt.scatter(y_test, y_pred, alpha=0.5)
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
@@ -61,7 +58,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.savefig(os.path.join(OUTPUT_DIR, f'prediction_scatter_{client_id}.png'))
     plt.close()
 
-    # Histograma dos resíduos
     plt.figure(figsize=(8, 6))
     plt.hist(residuals, bins=50, alpha=0.75)
     plt.xlabel("Prediction Error (°C)")
@@ -70,7 +66,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.savefig(os.path.join(OUTPUT_DIR, f"residuals_histogram_{client_id}.png"))
     plt.close()
 
-    # Distribuição dos reais vs previstos
     plt.figure(figsize=(8, 6))
     plt.hist(y_test, bins=50, alpha=0.5, label='Actual')
     plt.hist(y_pred, bins=50, alpha=0.5, label='Predicted')
@@ -81,7 +76,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.savefig(os.path.join(OUTPUT_DIR, f'hist_actual_vs_pred_{client_id}.png'))
     plt.close()
 
-    # Erro por faixa de temperatura
     df_eval = pd.DataFrame({'y_true': y_test, 'y_pred': y_pred})
     df_eval['temp_bin'] = pd.cut(df_eval['y_true'], bins=10)
     grouped = df_eval.groupby('temp_bin').apply(
@@ -99,7 +93,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.savefig(os.path.join(OUTPUT_DIR, f'error_by_temp_bin_{client_id}.png'))
     plt.close()
 
-    # Coeficientes
     coef = model.coef_
     plt.figure(figsize=(10, 6))
     plt.barh(feature_names, coef)
@@ -109,11 +102,9 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     plt.savefig(os.path.join(OUTPUT_DIR, f'coefficients_{client_id}.png'))
     plt.close()
 
-    # Cross-validation
     cross_val_r2 = cross_val_score(model, X_train, y_train, cv=5, scoring='r2')
     cross_val_rmse = np.sqrt(-cross_val_score(model, X_train, y_train, cv=5, scoring='neg_mean_squared_error'))
 
-    # Salvar resultados
     results = {
         'rmse': rmse,
         'mae': mae,
@@ -136,7 +127,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     with open(os.path.join(OUTPUT_DIR, f'results_{client_id}.json'), 'w') as f:
         json.dump(results, f, indent=4)
 
-    # Salvar apenas coeficientes e intercept em arquivo separado
     coefs_dict = {
         'coefs': coef.tolist(),
         'intercept': float(model.intercept_)
@@ -144,7 +134,6 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, client_id, feature_name
     with open(os.path.join(OUTPUT_DIR, f'coeffs_{client_id}.json'), 'w') as f:
         json.dump(coefs_dict, f, indent=4)
 
-    # Salvar modelo completo
     with open(os.path.join(OUTPUT_DIR, f'model_{client_id}.pkl'), 'wb') as f:
         pickle.dump(model, f)
 
@@ -161,36 +150,47 @@ while True:
     try:
         df = pd.read_csv(DATA_PATH)
 
-        np.random.seed(42)
-        client_data = df.sample(frac=1.0 / 3.0, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
+        # 🔍 Limpeza de outliers - Ajustado para temperatura
+        df = df[
+            (df['temperature'] < 45) & (df['temperature'] > 5) &  # Mais restritivo
+            (df['humidity'] < 100) & (df['humidity'] > 10) &
+            (df['voltage'] < 3.5) & (df['voltage'] > 2.0)
+        ].copy()
 
-        # Separar X e y
-        X = client_data[['moteid', 'humidity', 'light', 'voltage']]
+        # np.random.seed e amostragem - Aumentada para 65%
+        np.random.seed(int(time.time()) % 1000)
+        client_data = df.sample(frac=0.65, random_state=int(CLIENT_ID[-1])).reset_index(drop=True)
+
+        # 📈 FEATURES OTIMIZADAS
+        client_data['humidity_squared'] = client_data['humidity'] ** 2
+        client_data['log_light'] = np.log1p(client_data['light'] + 1)
+        client_data['voltage_per_light'] = client_data['voltage'] / (client_data['light'] + 1)
+        client_data['humidity_light_interaction'] = client_data['humidity'] * client_data['light']
+        client_data['temp_diff'] = client_data['temperature'].diff().fillna(0)
+        client_data['humidity_voltage_ratio'] = client_data['humidity'] / (client_data['voltage'] + 1)
+        client_data['light_voltage_interaction'] = client_data['light'] * client_data['voltage']
+        client_data['epoch_normalized'] = (client_data['epoch'] - client_data['epoch'].min()) / (client_data['epoch'].max() - client_data['epoch'].min())  # Nova feature temporal
+
+        # Seleção final de variáveis
+        feature_cols = ['humidity', 'light', 'voltage', 'humidity_squared',
+                        'log_light', 'voltage_per_light', 'humidity_light_interaction',
+                        'temp_diff', 'humidity_voltage_ratio', 'light_voltage_interaction',
+                        'epoch_normalized']
+        X = client_data[feature_cols]
         y = client_data['temperature']
 
-        # Pré-processamento
-        numeric_features = ['humidity', 'light', 'voltage']
-        categorical_features = ['moteid']
-
+        # Escalonamento
         preprocessor = ColumnTransformer(
-            transformers=[
-                ('num', StandardScaler(), numeric_features),
-                ('cat', OneHotEncoder(sparse_output=False, handle_unknown='ignore'), categorical_features)
-            ]
+            transformers=[('num', StandardScaler(), feature_cols)]
         )
 
         X_processed = preprocessor.fit_transform(X)
-        feature_names = (
-            numeric_features +
-            list(preprocessor.named_transformers_['cat'].get_feature_names_out(categorical_features))
-        )
+        feature_names = feature_cols  # já está na ordem correta
 
-        # Divisão treino/teste
         X_train, X_test, y_train, y_test = train_test_split(
             X_processed, y, test_size=0.2, random_state=42
         )
 
-        # Carregar apenas coeficientes se existirem
         coeffs_path = os.path.join(OUTPUT_DIR, f'coeffs_{CLIENT_ID}.json')
         prev_coefs = None
         prev_intercept = None
@@ -203,20 +203,19 @@ while True:
         else:
             print("[INFO] Nenhum coeficiente anterior encontrado. Criando novo modelo.")
 
-        # Treinar e avaliar
         total_start_time = time.time()
         results = train_and_evaluate(X_train, X_test, y_train, y_test, CLIENT_ID, feature_names, prev_coefs, prev_intercept)
         total_time = time.time() - total_start_time
 
         print(f"[INFO] Tempo total da execução: {total_time:.2f} segundos")
-        print("[PROCESSO] Aguardando 30 minutos para próxima execução...\n")
+        print("[PROCESSO] Aguardando 30 sec para próxima execução...\n")
 
         with open(os.path.join(OUTPUT_DIR, f'total_time_{CLIENT_ID}.txt'), 'w') as f:
             f.write(f"Total Execution Time ({CLIENT_ID}): {total_time:.2f} seconds\n")
 
-        time.sleep(1800)  # 30 minutos
+        time.sleep(30)
 
     except Exception as e:
         print(f"[ERRO] Ocorreu um erro: {e}")
-        print("[PROCESSO] Tentando novamente em 30 minutos...\n")
-        time.sleep(1800)
+        print("[PROCESSO] Tentando novamente em 30 sec...\n")
+        time.sleep(30)
