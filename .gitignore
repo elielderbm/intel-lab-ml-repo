@@ -13,6 +13,7 @@ local_ubuntu_22.04/ml_results_comparison/*
 local_ubuntu_22.04/ml_results_linear_regression/*
 local_ubuntu_22.04/ml_results_random_forest/*
 local_ubuntu_22.04/ml_results_cnn/*
+local_ubuntu_22.04/ml_results_xgb/*
 raspberry_pi_ubuntu/ml_results_comparison/*
 raspberry_pi_ubuntu/ml_results_linear_regression/*
 raspberry_pi_ubuntu/ml_results_random_forest/*
